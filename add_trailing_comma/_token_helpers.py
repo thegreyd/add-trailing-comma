@@ -120,69 +120,6 @@ def fix_brace(
         return
     first_brace, last_brace = fix_data.braces
 
-    # Figure out if either of the braces are "hugging"
-    hug_open = tokens[first_brace + 1].name not in NON_CODING_TOKENS
-    hug_close = tokens[last_brace - 1].name not in NON_CODING_TOKENS
-    if (
-            # Don't unhug single element things with a multi-line component
-            # inside.
-            not fix_data.multi_arg and
-            tokens[first_brace + 1].src in START_BRACES and
-            tokens[last_brace - 1].src in END_BRACES or
-            # Don't unhug when containing a single token (such as a triple
-            # quoted string).
-            first_brace + 2 == last_brace or
-            (
-                tokens[first_brace + 1].name == 'FSTRING_START' and
-                tokens[last_brace - 1].name == 'FSTRING_END'
-            ) or
-            # don't unhug if it is a single line
-            fix_data.remove_comma
-    ):
-        hug_open = hug_close = False
-
-    # fix open hugging
-    if hug_open:
-        new_indent = fix_data.initial_indent + 4
-
-        tokens[first_brace + 1:first_brace + 1] = [
-            Token('NL', '\n'), Token(UNIMPORTANT_WS, ' ' * new_indent),
-        ]
-        last_brace += 2
-        # Adjust indentation for the rest of the things
-        min_indent = None
-        indents = []
-        insert_indents = []
-        for i in range(first_brace + 3, last_brace):
-            if tokens[i - 1].name == 'NL' and tokens[i].name != 'NL':
-                if tokens[i].name != UNIMPORTANT_WS:
-                    min_indent = 0
-                    insert_indents.append(i)
-                else:
-                    if min_indent is None:
-                        min_indent = len(tokens[i].src)
-                    elif len(tokens[i].src) < min_indent:
-                        min_indent = len(tokens[i].src)
-                    indents.append(i)
-
-        if indents:
-            assert min_indent is not None
-            for i in indents:
-                oldlen = len(tokens[i].src)
-                newlen = oldlen - min_indent + new_indent
-                tokens[i] = tokens[i]._replace(src=' ' * newlen)
-        for i in reversed(insert_indents):
-            tokens.insert(i, Token(UNIMPORTANT_WS, ' ' * new_indent))
-            last_brace += 1
-
-    # fix close hugging
-    if hug_close:
-        tokens[last_brace:last_brace] = [
-            Token('NL', '\n'),
-            Token(UNIMPORTANT_WS, ' ' * fix_data.initial_indent),
-        ]
-        last_brace += 2
-
     # From there, we can walk backwards and decide whether a comma is needed
     i = last_brace - 1
     while tokens[i].name in NON_CODING_TOKENS:
@@ -191,22 +128,3 @@ def fix_brace(
     # If we're not a hugging paren, we can insert a comma
     if add_comma and tokens[i].src != ',' and i + 1 != last_brace:
         tokens.insert(i + 1, Token('OP', ','))
-
-    # Fix trailing brace to match leading indentation
-    back_1 = tokens[last_brace - 1]
-    back_2 = tokens[last_brace - 2]
-    if (
-            back_1.name == UNIMPORTANT_WS and
-            back_2.name == 'NL' and
-            len(back_1.src) != fix_data.initial_indent
-    ):
-        indent = fix_data.initial_indent * ' '
-        tokens[last_brace - 1] = back_1._replace(src=indent)
-
-    if fix_data.remove_comma:
-        start = last_brace
-        if tokens[start - 1].name == UNIMPORTANT_WS:
-            start -= 1
-        if remove_comma and tokens[start - 1].src == ',':
-            start -= 1
-        del tokens[start:last_brace]
